@@ -1,11 +1,13 @@
 module Main where
 
 import Data.Maybe
+import Data.List
 import Control.Monad
 
 import Graphics.UI.WX hiding (Event)
 import Reactive.Banana
 import Reactive.Banana.WX
+import Text.Printf
 
 
 main :: IO ()
@@ -38,23 +40,42 @@ converter = do
     let networkDescription :: MomentIO ()
         networkDescription = do
         
-        binput1  <- behaviorText input1 ""
-        unit1 <- newBehavior conBox1
-        unit2 <- newBehavior conBox2
+        binput1    <- behaviorText input1 "0"
+        binput2    <- behaviorText input2 "0"
+        unit1      <- behavior conBox1 selection
+        unit2      <- behavior conBox2 selection
+        conversion <- behavior unitCon selection
         
-        let
-            result :: Behavior (Maybe Double)
-            result = convert (unit1, "kilometers") <$> binput1
-            showNumber   = maybe "--" show
+        let rate = 0.7 :: Double
+            withString f input firstUnit secondUnit quantity
+                = maybe "--" (printf "%.2f") . fmap 
+                (\x -> f (x, firstUnit, secondUnit, quantity)) 
+                $ listToMaybe [x | (x,"") <- reads input]
+
+            -- define output values in terms of input values
+            output1, output2 :: Behavior String
+            output1 = withString (convert) <$> 
+                            binput2 <*> unit1 <*> unit2 <*> conversion
+            output2 = withString (convert) <$> 
+                            binput1 <*> unit1 <*> unit2 <*> conversion
     
-        sink input2 [text :== showNumber <$> result]   
+        sink input1   [text :== output1]
+        sink input2   [text :== output2] 
 
     network <- compile networkDescription    
     actuate network
 
 readNumber s = listToMaybe [x | (x,"") <- reads s]  
 
-convert (from, to) x 
-    | from == "miles" && to == "kilometers" = liftA2 (*) (readNumber x) (Just 1.60934)
-    | from == "kilometers" && to == "miles" = liftA2 (/) (readNumber x) (Just 1.60934)
-    | otherwise                             = liftA (id) (readNumber x)
+convert :: (Double, Int, Int, Int) -> Double
+convert (n, box1, box2, quant) = convert' n to from
+    where quantity = units !! quant
+          unitList = case quantity of
+                         "Length" -> lengthUnits
+                         "Weight" -> weightUnits
+          to = unitList !! box1
+          from = unitList !! box2
+          
+convert' amount "kilometers" "miles" = amount / 1.60934
+convert' amount "miles" "kilometers" = amount / 1.60934
+convert' amount _ _ = amount
